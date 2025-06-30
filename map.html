@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>🌍 Guess the Location Game</title>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCUYotw-U0ChIgaN9mZezjlLzhvYb9qBf4"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #f4f4f4;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      height: 100vh;
+    }
+    #map {
+      flex: 2;
+      height: 100vh;
+    }
+    #panel {
+      flex: 1;
+      padding: 20px;
+      background: #fff;
+      box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    input, button, select {
+      padding: 10px;
+      margin: 5px 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 1.1em;
+    }
+    #guessHistory {
+      margin-top: 10px;
+      font-size: 0.9em;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+    .guess-item {
+      margin: 3px 0;
+      padding: 5px;
+      background: #f0f0f0;
+      border-radius: 5px;
+    }
+    .progress {
+      margin: 10px 0;
+    }
+    .dot {
+      display: inline-block;
+      width: 15px;
+      height: 15px;
+      margin-right: 5px;
+      border-radius: 50%;
+      background: #ddd;
+    }
+    .dot.active {
+      background: #4caf50;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="panel">
+    <h2>🌍 Guess the Location Game</h2>
+    <label>Guesses Allowed:
+      <select id="guessCountSelect">
+        <option value="5">5</option>
+        <option value="10">10</option>
+      </select>
+    </label>
+    <input type="text" id="guessInput" placeholder="Enter city or address">
+    <button id="guessBtn">Submit Guess</button>
+    <button id="startBtn">Start Game</button>
+    <div class="progress" id="progress"></div>
+    <div id="status">Click "Start Game" to begin!</div>
+    <div id="guessHistory"></div>
+  </div>
+
+  <script>
+    let map, randomLat, randomLng, guessesAllowed = 5, guessCount = 0, totalPoints = 0, lastDistance = null, markers = [];
+
+    function initMap() {
+      map = new google.maps.Map(document.getElementById('map'), {
+        center: { lat: 20, lng: 0 },
+        zoom: 2
+      });
+
+      map.addListener('click', async function(e) {
+        const latLng = e.latLng;
+        await handleGuess(latLng.lat(), latLng.lng(), 'Dropped Pin');
+      });
+    }
+
+    function getRandomCoord() {
+      const regions = [
+        { name: "North America", latMin: 15, latMax: 72, lngMin: -168, lngMax: -52 },
+        { name: "Europe", latMin: 35, latMax: 71, lngMin: -10, lngMax: 40 },
+        { name: "Asia", latMin: 5, latMax: 55, lngMin: 60, lngMax: 150 },
+        { name: "South America", latMin: -55, latMax: 12, lngMin: -81, lngMax: -34 },
+        { name: "Africa", latMin: -35, latMax: 37, lngMin: -17, lngMax: 51 },
+        { name: "Australia", latMin: -44, latMax: -10, lngMin: 112, lngMax: 154 }
+      ];
+      const region = regions[Math.floor(Math.random() * regions.length)];
+      const lat = Math.random() * (region.latMax - region.latMin) + region.latMin;
+      const lng = Math.random() * (region.lngMax - region.lngMin) + region.lngMin;
+      return { lat, lng };
+    }
+
+    function calculateDistance(lat1, lng1, lat2, lng2) {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c * 0.621371; // miles
+    }
+
+    async function geocode(address) {
+      const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=AIzaSyCUYotw-U0ChIgaN9mZezjlLzhvYb9qBf4`);
+      const data = await response.json();
+      if (data.status === 'OK') {
+        return data.results[0].geometry.location;
+      } else {
+        throw new Error('Location not found');
+      }
+    }
+
+    function updateProgress() {
+      const progress = document.getElementById('progress');
+      progress.innerHTML = '';
+      for (let i = 0; i < guessesAllowed; i++) {
+        const dot = document.createElement('div');
+        dot.className = 'dot' + (i < guessCount ? ' active' : '');
+        progress.appendChild(dot);
+      }
+    }
+
+    async function handleGuess(lat, lng, label) {
+      if (guessCount >= guessesAllowed) {
+        document.getElementById('status').innerText = `Game over! Total points: ${Math.round(totalPoints)}`;
+        return;
+      }
+
+      const distance = calculateDistance(randomLat, randomLng, lat, lng);
+      totalPoints += distance;
+      guessCount++;
+      updateProgress();
+
+      const hotterColder = lastDistance == null ? '' :
+        distance < lastDistance ? '🔥 Hotter!' : '❄️ Colder!';
+      lastDistance = distance;
+
+      const guessHistory = document.getElementById('guessHistory');
+      const item = document.createElement('div');
+      item.className = 'guess-item';
+      item.innerText = `${label}: ${Math.round(distance)} miles away`;
+      guessHistory.appendChild(item);
+
+      const marker = new google.maps.Marker({
+        position: { lat, lng },
+        map: map,
+        animation: google.maps.Animation.DROP
+      });
+      markers.push(marker);
+
+      if (guessCount === guessesAllowed) {
+        const targetMarker = new google.maps.Marker({
+          position: { lat: randomLat, lng: randomLng },
+          map: map,
+          icon: 'http://maps.google.com/mapfiles/ms/icons/green-dot.png'
+        });
+        map.setCenter({ lat: randomLat, lng: randomLng });
+        map.setZoom(2);
+        document.getElementById('status').innerText =
+          `${hotterColder} → Game over! Total points: ${Math.round(totalPoints)}`;
+      } else {
+        document.getElementById('status').innerText =
+          `${hotterColder} You are ${Math.round(distance)} miles away. Guess ${guessCount}/${guessesAllowed}`;
+      }
+    }
+
+    document.getElementById('startBtn').addEventListener('click', () => {
+      const coord = getRandomCoord();
+      randomLat = coord.lat;
+      randomLng = coord.lng;
+      guessesAllowed = parseInt(document.getElementById('guessCountSelect').value);
+      guessCount = 0;
+      totalPoints = 0;
+      lastDistance = null;
+      document.getElementById('status').innerText = 'Game started! Make your first guess.';
+      document.getElementById('guessHistory').innerHTML = '';
+      updateProgress();
+      markers.forEach(m => m.setMap(null));
+      markers = [];
+      map.setCenter({ lat: randomLat, lng: randomLng });
+      map.setZoom(2);
+    });
+
+    document.getElementById('guessBtn').addEventListener('click', async () => {
+      const guess = document.getElementById('guessInput').value;
+      if (!guess) return;
+      try {
+        const location = await geocode(guess);
+        await handleGuess(location.lat, location.lng, guess);
+      } catch {
+        document.getElementById('status').innerText = 'Invalid location, try again!';
+      }
+    });
+
+    window.onload = initMap;
+  </script>
+</body>
+</html>
